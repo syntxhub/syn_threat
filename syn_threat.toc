@@ -1,0 +1,8 @@
+## Interface: 20504
+## Title: syn_threat
+## Notes: Shows who currently has threat on your target.
+## Author: syn
+## Version: 0.1.0
+## SavedVariables: SynThreatDB
+
+syn_threat.lua
