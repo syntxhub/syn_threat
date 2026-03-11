@@ -131,11 +131,30 @@ local function GetThreatLeaders()
   local entries = {}
   local tankEntry
 
+  local function HasThreatData(isTanking, status, threatPercent, rawThreatPercent, threatValue)
+    if isTanking then
+      return true
+    end
+    if threatValue and threatValue > 0 then
+      return true
+    end
+    if rawThreatPercent and rawThreatPercent > 0 then
+      return true
+    end
+    if threatPercent and threatPercent > 0 then
+      return true
+    end
+    if status and status > 0 then
+      return true
+    end
+    return false
+  end
+
   for _, unit in ipairs(units) do
     if UnitExists(unit) then
       local isTanking, status, threatPercent, rawThreatPercent, threatValue = UnitDetailedThreatSituation(unit, "target")
-      if threatValue and threatValue > 0 then
-        local compare = rawThreatPercent or threatPercent or 0
+      if HasThreatData(isTanking, status, threatPercent, rawThreatPercent, threatValue) then
+        local compare = rawThreatPercent or threatPercent or status or 0
         local entry = {
           unit = unit,
           raw = rawThreatPercent,
