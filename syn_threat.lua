@@ -1,4 +1,5 @@
 local ADDON_NAME = ...
+local SynThreatOptionsCategory
 
 local frame = CreateFrame("Frame", "SynThreatFrame", UIParent)
 frame:SetSize(280, 70)
@@ -12,19 +13,43 @@ frame.text:SetAllPoints()
 frame.text:SetJustifyH("CENTER")
 frame.text:SetJustifyV("TOP")
 
+local bgTexture = frame:CreateTexture(nil, "BACKGROUND")
+bgTexture:SetAllPoints(frame)
+bgTexture:Hide()
+
 local DEFAULTS = {
   hidden = false,
   lock = false,
   showSecond = true,
   showPercent = true,
   scale = 1,
+  onlyInCombat = false,
+  customTextColor = false,
+  textColor = { r = 1, g = 1, b = 1 },
+  customBg = false,
+  bgTransparent = false,
+  bgColor = { r = 0, g = 0, b = 0, a = 0.5 },
 }
 
 local function InitDB()
   SynThreatDB = SynThreatDB or {}
   for k, v in pairs(DEFAULTS) do
     if SynThreatDB[k] == nil then
-      SynThreatDB[k] = v
+      if type(v) == "table" then
+        local copy = {}
+        for tk, tv in pairs(v) do
+          copy[tk] = tv
+        end
+        SynThreatDB[k] = copy
+      else
+        SynThreatDB[k] = v
+      end
+    elseif type(v) == "table" then
+      for tk, tv in pairs(v) do
+        if SynThreatDB[k][tk] == nil then
+          SynThreatDB[k][tk] = tv
+        end
+      end
     end
   end
 end
@@ -144,6 +169,11 @@ local function GetThreatLeaders()
 end
 
 local function SetTextColorForUnit(unit)
+  if SynThreatDB and SynThreatDB.customTextColor and SynThreatDB.textColor then
+    local c = SynThreatDB.textColor
+    frame.text:SetTextColor(c.r or 1, c.g or 1, c.b or 1)
+    return
+  end
   if UnitIsPlayer(unit) then
     local _, class = UnitClass(unit)
     local color = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
@@ -153,6 +183,29 @@ local function SetTextColorForUnit(unit)
     end
   end
   frame.text:SetTextColor(1, 1, 1)
+end
+
+local function SetNeutralTextColor(r, g, b)
+  if SynThreatDB and SynThreatDB.customTextColor and SynThreatDB.textColor then
+    local c = SynThreatDB.textColor
+    frame.text:SetTextColor(c.r or 1, c.g or 1, c.b or 1)
+  else
+    frame.text:SetTextColor(r, g, b)
+  end
+end
+
+local function ApplyBackground()
+  if SynThreatDB and SynThreatDB.customBg then
+    local c = SynThreatDB.bgColor or {}
+    local alpha = c.a or 0.5
+    if SynThreatDB.bgTransparent then
+      alpha = 0
+    end
+    bgTexture:SetColorTexture(c.r or 0, c.g or 0, c.b or 0, alpha)
+    bgTexture:Show()
+  else
+    bgTexture:Hide()
+  end
 end
 
 local function FormatThreatLine(label, entry)
@@ -178,9 +231,20 @@ local function FormatThreatLine(label, entry)
 end
 
 local function UpdateDisplay()
+  if SynThreatDB and SynThreatDB.onlyInCombat then
+    if InCombatLockdown() then
+      if not SynThreatDB.hidden then
+        frame:Show()
+      end
+    else
+      frame:Hide()
+      return
+    end
+  end
+
   if not HasValidTarget() then
     frame.text:SetText("No hostile target")
-    frame.text:SetTextColor(0.7, 0.7, 0.7)
+    SetNeutralTextColor(0.7, 0.7, 0.7)
     return
   end
 
@@ -204,7 +268,7 @@ local function UpdateDisplay()
   if primary then
     SetTextColorForUnit(primary.unit)
   else
-    frame.text:SetTextColor(1, 1, 1)
+    SetNeutralTextColor(1, 1, 1)
   end
 end
 
@@ -213,9 +277,18 @@ local function OnEvent(self, event, ...)
     InitDB()
     ApplyPosition()
     frame:SetScale(SynThreatDB.scale or 1)
+    ApplyBackground()
     if SynThreatDB.hidden then
       self:Hide()
     else
+      self:Show()
+    end
+  end
+  if event == "PLAYER_REGEN_ENABLED" and SynThreatDB and SynThreatDB.onlyInCombat then
+    self:Hide()
+  end
+  if event == "PLAYER_REGEN_DISABLED" and SynThreatDB and SynThreatDB.onlyInCombat then
+    if not SynThreatDB.hidden then
       self:Show()
     end
   end
@@ -228,6 +301,8 @@ frame:RegisterEvent("PLAYER_TARGET_CHANGED")
 frame:RegisterEvent("GROUP_ROSTER_UPDATE")
 frame:RegisterEvent("UNIT_THREAT_LIST_UPDATE")
 frame:RegisterEvent("UNIT_THREAT_SITUATION_UPDATE")
+frame:RegisterEvent("PLAYER_REGEN_ENABLED")
+frame:RegisterEvent("PLAYER_REGEN_DISABLED")
 frame:SetScript("OnEvent", OnEvent)
 
 SLASH_SYNTHREAT1 = "/synt"
@@ -291,6 +366,8 @@ local function CreateOptionsPanel()
     return cb
   end
 
+  local UpdateSwatches
+
   local enableCb = CreateFrame("CheckButton", "SynThreatOptionsEnable", panel, "InterfaceOptionsCheckButtonTemplate")
   enableCb:SetPoint("TOPLEFT", subText, "BOTTOMLEFT", -2, -12)
   _G[enableCb:GetName() .. "Text"]:SetText("Enable display")
@@ -309,20 +386,74 @@ local function CreateOptionsPanel()
     SynThreatDB.lock = self:GetChecked()
   end)
 
-  local secondCb = CreateCheckbox("SynThreatOptionsSecond", "Show second threat", "Show the next highest threat holder", lockCb, -8)
+  local secondCb = CreateCheckbox("SynThreatOptionsSecond", "Show second threat", "Show the next highest threat holder",
+    lockCb, -8)
   secondCb:SetScript("OnClick", function(self)
     SynThreatDB.showSecond = self:GetChecked()
     UpdateDisplay()
   end)
 
-  local percentCb = CreateCheckbox("SynThreatOptionsPercent", "Show percentages", "Show threat percentage values", secondCb, -8)
+  local percentCb = CreateCheckbox("SynThreatOptionsPercent", "Show percentages", "Show threat percentage values",
+    secondCb, -8)
   percentCb:SetScript("OnClick", function(self)
     SynThreatDB.showPercent = self:GetChecked()
     UpdateDisplay()
   end)
 
+  local combatCb = CreateCheckbox("SynThreatOptionsCombatOnly", "Only show in combat", "Hide the display out of combat",
+    percentCb, -8)
+  combatCb:SetScript("OnClick", function(self)
+    SynThreatDB.onlyInCombat = self:GetChecked()
+    if SynThreatDB.onlyInCombat and not InCombatLockdown() then
+      frame:Hide()
+    elseif not SynThreatDB.hidden then
+      frame:Show()
+    end
+    UpdateDisplay()
+  end)
+
+  local customTextCb = CreateCheckbox("SynThreatOptionsCustomText", "Use custom text color",
+    "Override class colors with a custom color", combatCb, -8)
+  customTextCb:SetScript("OnClick", function(self)
+    SynThreatDB.customTextColor = self:GetChecked()
+    UpdateDisplay()
+    UpdateSwatches()
+  end)
+
+  local textColorBtn = CreateFrame("Button", "SynThreatOptionsTextColor", panel, "UIPanelButtonTemplate")
+  textColorBtn:SetSize(120, 22)
+  textColorBtn:SetPoint("TOPLEFT", customTextCb, "BOTTOMLEFT", 0, -6)
+  textColorBtn:SetText("Text color")
+  local textSwatch = textColorBtn:CreateTexture(nil, "ARTWORK")
+  textSwatch:SetSize(14, 14)
+  textSwatch:SetPoint("LEFT", textColorBtn, "RIGHT", 6, 0)
+
+  local customBgCb = CreateCheckbox("SynThreatOptionsCustomBg", "Use custom background",
+    "Show a colored background behind the text", textColorBtn, -10)
+  customBgCb:SetScript("OnClick", function(self)
+    SynThreatDB.customBg = self:GetChecked()
+    ApplyBackground()
+    UpdateSwatches()
+  end)
+
+  local transparentBgCb = CreateCheckbox("SynThreatOptionsTransparentBg", "Transparent background",
+    "Force background alpha to 0", customBgCb, -8)
+  transparentBgCb:SetScript("OnClick", function(self)
+    SynThreatDB.bgTransparent = self:GetChecked()
+    ApplyBackground()
+    UpdateSwatches()
+  end)
+
+  local bgColorBtn = CreateFrame("Button", "SynThreatOptionsBgColor", panel, "UIPanelButtonTemplate")
+  bgColorBtn:SetSize(120, 22)
+  bgColorBtn:SetPoint("TOPLEFT", transparentBgCb, "BOTTOMLEFT", 0, -6)
+  bgColorBtn:SetText("Background")
+  local bgSwatch = bgColorBtn:CreateTexture(nil, "ARTWORK")
+  bgSwatch:SetSize(14, 14)
+  bgSwatch:SetPoint("LEFT", bgColorBtn, "RIGHT", 6, 0)
+
   local scaleSlider = CreateFrame("Slider", "SynThreatOptionsScale", panel, "OptionsSliderTemplate")
-  scaleSlider:SetPoint("TOPLEFT", percentCb, "BOTTOMLEFT", 0, -18)
+  scaleSlider:SetPoint("TOPLEFT", bgColorBtn, "BOTTOMLEFT", 0, -18)
   scaleSlider:SetMinMaxValues(0.8, 1.5)
   scaleSlider:SetValueStep(0.05)
   scaleSlider:SetObeyStepOnDrag(true)
@@ -334,13 +465,132 @@ local function CreateOptionsPanel()
     frame:SetScale(value)
   end)
 
+  UpdateSwatches = function()
+    if SynThreatDB.textColor then
+      textSwatch:SetColorTexture(SynThreatDB.textColor.r or 1, SynThreatDB.textColor.g or 1, SynThreatDB.textColor.b or 1,
+        1)
+    end
+    if SynThreatDB.bgColor then
+      local alpha = SynThreatDB.bgColor.a or 0.5
+      if SynThreatDB.bgTransparent then
+        alpha = 0
+      end
+      bgSwatch:SetColorTexture(SynThreatDB.bgColor.r or 0, SynThreatDB.bgColor.g or 0, SynThreatDB.bgColor.b or 0, alpha)
+    end
+    textColorBtn:SetEnabled(SynThreatDB.customTextColor)
+    bgColorBtn:SetEnabled(SynThreatDB.customBg)
+  end
+
+  local function OpenColorPicker(color, hasOpacity, onChange)
+    local r = color.r or 1
+    local g = color.g or 1
+    local b = color.b or 1
+    local a = color.a or 1
+
+    if ColorPickerFrame and ColorPickerFrame.SetupColorPickerAndShow then
+      local function ApplyColor()
+        local nr, ng, nb = ColorPickerFrame:GetColorRGB()
+        local na = a
+        if hasOpacity then
+          if ColorPickerFrame.GetColorAlpha then
+            na = 1 - (ColorPickerFrame:GetColorAlpha() or 0)
+          else
+            na = 1 - (ColorPickerFrame.opacity or 0)
+          end
+        end
+        onChange(nr, ng, nb, na)
+      end
+
+      local info = {
+        r = r,
+        g = g,
+        b = b,
+        hasOpacity = hasOpacity,
+        opacity = hasOpacity and (1 - a) or 0,
+        swatchFunc = ApplyColor,
+        opacityFunc = ApplyColor,
+        cancelFunc = function(prev)
+          if type(prev) == "table" then
+            onChange(prev.r or r, prev.g or g, prev.b or b, prev.a or a)
+          else
+            onChange(r, g, b, a)
+          end
+        end,
+      }
+
+      ColorPickerFrame:SetupColorPickerAndShow(info)
+      return
+    end
+
+    if not ColorPickerFrame and LoadAddOn then
+      LoadAddOn("Blizzard_ColorPickerFrame")
+    end
+    if not ColorPickerFrame then
+      return
+    end
+
+    local function ApplyColor()
+      local nr, ng, nb = ColorPickerFrame:GetColorRGB()
+      local na = hasOpacity and (1 - (ColorPickerFrame.opacity or 0)) or 1
+      onChange(nr, ng, nb, na)
+    end
+
+    ColorPickerFrame.hasOpacity = hasOpacity
+    ColorPickerFrame.opacity = hasOpacity and (1 - a) or 0
+    ColorPickerFrame.previousValues = { r = r, g = g, b = b, a = a }
+    ColorPickerFrame.func = ApplyColor
+    ColorPickerFrame.opacityFunc = ApplyColor
+    ColorPickerFrame.cancelFunc = function(prev)
+      if type(prev) == "table" then
+        onChange(prev.r or r, prev.g or g, prev.b or b, prev.a or a)
+      else
+        onChange(r, g, b, a)
+      end
+    end
+
+    ColorPickerFrame:SetColorRGB(r, g, b)
+    ColorPickerFrame:Show()
+  end
+
+  textColorBtn:SetScript("OnClick", function()
+    if not SynThreatDB.textColor then
+      SynThreatDB.textColor = { r = 1, g = 1, b = 1 }
+    end
+    OpenColorPicker(SynThreatDB.textColor, false, function(r, g, b)
+      SynThreatDB.textColor.r = r
+      SynThreatDB.textColor.g = g
+      SynThreatDB.textColor.b = b
+      UpdateDisplay()
+      UpdateSwatches()
+    end)
+  end)
+
+  bgColorBtn:SetScript("OnClick", function()
+    if not SynThreatDB.bgColor then
+      SynThreatDB.bgColor = { r = 0, g = 0, b = 0, a = 0.5 }
+    end
+    OpenColorPicker(SynThreatDB.bgColor, true, function(r, g, b, a)
+      SynThreatDB.bgColor.r = r
+      SynThreatDB.bgColor.g = g
+      SynThreatDB.bgColor.b = b
+      SynThreatDB.bgColor.a = a
+      ApplyBackground()
+      UpdateSwatches()
+    end)
+  end)
+
   panel:SetScript("OnShow", function()
     InitDB()
     enableCb:SetChecked(not SynThreatDB.hidden)
     lockCb:SetChecked(SynThreatDB.lock)
     secondCb:SetChecked(SynThreatDB.showSecond)
     percentCb:SetChecked(SynThreatDB.showPercent)
+    combatCb:SetChecked(SynThreatDB.onlyInCombat)
+    customTextCb:SetChecked(SynThreatDB.customTextColor)
+    customBgCb:SetChecked(SynThreatDB.customBg)
+    transparentBgCb:SetChecked(SynThreatDB.bgTransparent)
     scaleSlider:SetValue(SynThreatDB.scale or 1)
+    UpdateSwatches()
   end)
 
   if Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory then
