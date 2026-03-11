@@ -96,14 +96,18 @@ local function BuildUnitList()
     local n = GetNumGroupMembers()
     for i = 1, n do
       units[#units + 1] = "raid" .. i
+      units[#units + 1] = "raidpet" .. i
     end
   elseif IsInGroup() then
     units[#units + 1] = "player"
+    units[#units + 1] = "pet"
     for i = 1, 4 do
       units[#units + 1] = "party" .. i
+      units[#units + 1] = "partypet" .. i
     end
   else
     units[#units + 1] = "player"
+    units[#units + 1] = "pet"
   end
   return units
 end
@@ -168,6 +172,13 @@ local function GetThreatLeaders()
   return primary, secondary
 end
 
+-- local function checkPlayerTank()
+--   -- This is to check for tanks
+
+-- end
+
+-- local function checkIsRaid
+
 local function SetTextColorForUnit(unit)
   if SynThreatDB and SynThreatDB.customTextColor and SynThreatDB.textColor then
     local c = SynThreatDB.textColor
@@ -213,10 +224,41 @@ local function FormatThreatLine(label, entry)
     return label .. ": N/A"
   end
 
-  local name = UnitName(entry.unit) or "Unknown"
-  if entry.unit == "player" then
-    name = "You"
+  local function GetOwnerUnitForPet(unit)
+    if unit == "pet" then
+      return "player"
+    end
+    local raidIndex = unit:match("^raidpet(%d+)$")
+    if raidIndex then
+      return "raid" .. raidIndex
+    end
+    local partyIndex = unit:match("^partypet(%d+)$")
+    if partyIndex then
+      return "party" .. partyIndex
+    end
+    return nil
   end
+
+  local function GetDisplayName(unit)
+    if unit == "player" then
+      return "You"
+    end
+
+    local name = UnitName(unit) or "Unknown"
+    local ownerUnit = GetOwnerUnitForPet(unit)
+    if ownerUnit then
+      local ownerName = UnitName(ownerUnit)
+      if ownerUnit == "player" then
+        ownerName = "You"
+      end
+      if ownerName and ownerName ~= "" then
+        name = name .. " (" .. ownerName .. ")"
+      end
+    end
+    return name
+  end
+
+  local name = GetDisplayName(entry.unit)
 
   local pctText = ""
   if SynThreatDB and SynThreatDB.showPercent then
