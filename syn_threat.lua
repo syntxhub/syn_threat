@@ -336,19 +336,16 @@ local function OnEvent(self, event, ...)
     else
       self:Show()
     end
-    UpdateDisplay()
-  elseif event == "PLAYER_REGEN_ENABLED" and SynThreatDB.onlyInCombat then
+  end
+  if event == "PLAYER_REGEN_ENABLED" and SynThreatDB.onlyInCombat then
     self:Hide()
-  elseif event == "PLAYER_REGEN_DISABLED" and SynThreatDB.onlyInCombat then
+  end
+  if event == "PLAYER_REGEN_DISABLED" and SynThreatDB.onlyInCombat then
     if not SynThreatDB.hidden then
       self:Show()
     end
-    UpdateDisplay()
-  elseif event == "PLAYER_TARGET_CHANGED" or event == "PLAYER_ENTERING_WORLD" then
-    UpdateDisplay()
-  elseif event == "GROUP_ROSTER_UPDATE" or event == "UNIT_THREAT_LIST_UPDATE" or event == "UNIT_THREAT_SITUATION_UPDATE" then
-    UpdateDisplay()
   end
+  UpdateDisplay()
 end
 
 frame:RegisterEvent("PLAYER_LOGIN")
