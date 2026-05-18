@@ -55,7 +55,7 @@ local function InitDB()
 end
 
 local function ApplyPosition()
-  if SynThreatDB and SynThreatDB.point then
+  if SynThreatDB.point then
     frame:ClearAllPoints()
     frame:SetPoint(SynThreatDB.point, UIParent, SynThreatDB.relativePoint, SynThreatDB.x, SynThreatDB.y)
   else
@@ -66,7 +66,6 @@ end
 
 local function SavePosition()
   local point, _, relativePoint, x, y = frame:GetPoint(1)
-  SynThreatDB = SynThreatDB or {}
   SynThreatDB.point = point
   SynThreatDB.relativePoint = relativePoint
   SynThreatDB.x = x
@@ -191,23 +190,16 @@ local function GetThreatLeaders()
   return primary, secondary
 end
 
--- local function checkPlayerTank()
---   -- This is to check for tanks
-
--- end
-
--- local function checkIsRaid
-
 local function SetTextColorForUnit(unit)
   if SynThreatDB and SynThreatDB.customTextColor and SynThreatDB.textColor then
+    local c = Sy.customTextColor and SynThreatDB.textColor then
     local c = SynThreatDB.textColor
     frame.text:SetTextColor(c.r or 1, c.g or 1, c.b or 1)
     return
   end
   if UnitIsPlayer(unit) then
     local _, class = UnitClass(unit)
-    local color = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
-    if color then
+    local color = class
       frame.text:SetTextColor(color.r, color.g, color.b)
       return
     end
@@ -216,7 +208,7 @@ local function SetTextColorForUnit(unit)
 end
 
 local function SetNeutralTextColor(r, g, b)
-  if SynThreatDB and SynThreatDB.customTextColor and SynThreatDB.textColor then
+  if SynThreatDB.customTextColor and SynThreatDB.textColor then
     local c = SynThreatDB.textColor
     frame.text:SetTextColor(c.r or 1, c.g or 1, c.b or 1)
   else
@@ -225,8 +217,8 @@ local function SetNeutralTextColor(r, g, b)
 end
 
 local function ApplyBackground()
-  if SynThreatDB and SynThreatDB.customBg then
-    local c = SynThreatDB.bgColor or {}
+  if SynThreatDB.customBg then
+    local c = SynThreatDB.bgColor
     local alpha = c.a or 0.5
     if SynThreatDB.bgTransparent then
       alpha = 0
@@ -238,49 +230,49 @@ local function ApplyBackground()
   end
 end
 
+local function GetOwnerUnitForPet(unit)
+  if unit == "pet" then
+    return "player"
+  end
+  local raidIndex = unit:match("^raidpet(%d+)$")
+  if raidIndex then
+    return "raid" .. raidIndex
+  end
+  local partyIndex = unit:match("^partypet(%d+)$")
+  if partyIndex then
+    return "party" .. partyIndex
+  end
+  return nil
+end
+
+local function GetDisplayName(unit)
+  if unit == "player" then
+    return "You"
+  end
+
+  local name = UnitName(unit) or "Unknown"
+  local ownerUnit = GetOwnerUnitForPet(unit)
+  if ownerUnit then
+    local ownerName = UnitName(ownerUnit)
+    if ownerUnit == "player" then
+      ownerName = "You"
+    end
+    if ownerName and ownerName ~= "" then
+      name = name .. " (" .. ownerName .. ")"
+    end
+  end
+  return name
+end
+
 local function FormatThreatLine(label, entry)
   if not entry then
     return label .. ": N/A"
   end
 
-  local function GetOwnerUnitForPet(unit)
-    if unit == "pet" then
-      return "player"
-    end
-    local raidIndex = unit:match("^raidpet(%d+)$")
-    if raidIndex then
-      return "raid" .. raidIndex
-    end
-    local partyIndex = unit:match("^partypet(%d+)$")
-    if partyIndex then
-      return "party" .. partyIndex
-    end
-    return nil
-  end
-
-  local function GetDisplayName(unit)
-    if unit == "player" then
-      return "You"
-    end
-
-    local name = UnitName(unit) or "Unknown"
-    local ownerUnit = GetOwnerUnitForPet(unit)
-    if ownerUnit then
-      local ownerName = UnitName(ownerUnit)
-      if ownerUnit == "player" then
-        ownerName = "You"
-      end
-      if ownerName and ownerName ~= "" then
-        name = name .. " (" .. ownerName .. ")"
-      end
-    end
-    return name
-  end
-
   local name = GetDisplayName(entry.unit)
 
   local pctText = ""
-  if SynThreatDB and SynThreatDB.showPercent then
+  if SynThreatDB.showPercent then
     if entry.raw then
       pctText = string.format(" (%.0f%%)", entry.raw)
     elseif entry.pct then
@@ -292,7 +284,7 @@ local function FormatThreatLine(label, entry)
 end
 
 local function UpdateDisplay()
-  if SynThreatDB and SynThreatDB.onlyInCombat then
+  if SynThreatDB.onlyInCombat then
     if InCombatLockdown() then
       if not SynThreatDB.hidden then
         frame:Show()
@@ -319,7 +311,7 @@ local function UpdateDisplay()
 
   local primaryLine = FormatThreatLine(primaryLabel, primary)
   local display = targetName .. "\n" .. primaryLine
-  if SynThreatDB and SynThreatDB.showSecond then
+  if SynThreatDB.showSecond then
     local secondaryLine = FormatThreatLine("Next", secondary)
     display = display .. "\n" .. secondaryLine
   end
@@ -344,16 +336,19 @@ local function OnEvent(self, event, ...)
     else
       self:Show()
     end
-  end
-  if event == "PLAYER_REGEN_ENABLED" and SynThreatDB and SynThreatDB.onlyInCombat then
+    UpdateDisplay()
+  elseif event == "PLAYER_REGEN_ENABLED" and SynThreatDB.onlyInCombat then
     self:Hide()
-  end
-  if event == "PLAYER_REGEN_DISABLED" and SynThreatDB and SynThreatDB.onlyInCombat then
+  elseif event == "PLAYER_REGEN_DISABLED" and SynThreatDB.onlyInCombat then
     if not SynThreatDB.hidden then
       self:Show()
     end
+    UpdateDisplay()
+  elseif event == "PLAYER_TARGET_CHANGED" or event == "PLAYER_ENTERING_WORLD" then
+    UpdateDisplay()
+  elseif event == "GROUP_ROSTER_UPDATE" or event == "UNIT_THREAT_LIST_UPDATE" or event == "UNIT_THREAT_SITUATION_UPDATE" then
+    UpdateDisplay()
   end
-  UpdateDisplay()
 end
 
 frame:RegisterEvent("PLAYER_LOGIN")
@@ -379,7 +374,6 @@ local function OpenOptionsPanel()
     InterfaceOptionsFrame:OpenToCategory("Syn Threat")
   end
 end
-
 SlashCmdList["SYNTHREAT"] = function(msg)
   msg = (msg or ""):lower()
   SynThreatDB = SynThreatDB or {}
